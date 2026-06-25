@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Secrets
+.env
+data/token.json
+data/credentials.json
+
+# Generated data
+data/transactions.json
+logs/
