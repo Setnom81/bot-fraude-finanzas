@@ -1,9 +1,9 @@
 from datetime import datetime
 
-from config import DEFAULT_START_DATE, QUERY_TEMPLATE
-from gmail_client import GmailClient
-from parser import BacParser
-from storage import TransactionStorage
+from app.config import DEFAULT_START_DATE, QUERY_TEMPLATE
+from app.gmail_client import GmailClient
+from app.parser import BacParser
+from app.storage import TransactionStorage
 
 
 def iso_to_gmail_date(value):

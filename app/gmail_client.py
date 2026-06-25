@@ -4,8 +4,7 @@ import re
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-from config import SCOPES, TOKEN_FILE
-
+from app.config import SCOPES, TOKEN_FILE
 
 class GmailClient:
     def __init__(self):

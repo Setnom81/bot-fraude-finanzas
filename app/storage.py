@@ -2,8 +2,7 @@ import json
 import os
 from datetime import datetime
 
-from config import TRANSACTIONS_FILE, DATA_DIR
-
+from app.config import TRANSACTIONS_FILE, DATA_DIR
 
 class TransactionStorage:
     def __init__(self):

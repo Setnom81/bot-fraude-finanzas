@@ -11,7 +11,7 @@ su propio parser (por ejemplo PromericaParser, BNParser, etc.).
 import re
 from datetime import datetime
 
-from models import Transaction
+from app.models import Transaction
 
 
 class BacParser:
