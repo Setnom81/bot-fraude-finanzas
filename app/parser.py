@@ -1,11 +1,12 @@
 """
 BAC Parser
 
-Se encarga de convertir el contenido de un correo del BAC
-en un objeto Transaction.
+Responsible for converting the content of a BAC transaction
+notification email into a Transaction object.
 
-Si en el futuro agregas otros bancos, cada uno debería tener
-su propio parser (por ejemplo PromericaParser, BNParser, etc.).
+If support for additional banks is added in the future,
+each bank should have its own dedicated parser
+(e.g., PromericaParser, BNParser, etc.).
 """
 
 import re
@@ -15,16 +16,35 @@ from app.models import Transaction
 
 
 class BacParser:
+    """
+    Parses BAC email notifications and extracts structured
+    transaction information.
+
+    Each extraction method is responsible for retrieving a
+    specific piece of data from the email body.
+    """
 
     # ==========================================================
-    # API PÚBLICA
+    # PUBLIC API
     # ==========================================================
 
     def parse(self, message_id, headers, body, gmail_client):
         """
-        Convierte un correo de Gmail en una Transaction.
+        Converts a Gmail message into a Transaction object.
+
+        Args:
+            message_id (str): Gmail message identifier.
+            headers (list): Gmail message headers.
+            body (str): Plain text email body.
+            gmail_client (GmailClient): Gmail helper used to
+                retrieve header values.
+
+        Returns:
+            Transaction: Parsed transaction data.
         """
 
+        # Extracts the raw amount first so it can be reused by
+        # the amount value and currency extraction methods.
         amount_raw = self.extract_amount_raw(body)
 
         return Transaction(
@@ -54,39 +74,52 @@ class BacParser:
 
             email_date=gmail_client.get_header(headers, "Date"),
 
+            # Records when the parser processed this email.
             processed_at=datetime.now().isoformat(),
 
+            # Stores the original email body for auditing
+            # and future troubleshooting.
             body=body
         )
 
     # ==========================================================
-    # UTILIDADES
+    # TEXT UTILITIES
     # ==========================================================
 
     @staticmethod
     def clean_text(text):
         """
-        Elimina espacios repetidos y saltos de línea.
+        Normalizes whitespace by removing repeated spaces
+        and line breaks.
+
+        Args:
+            text (str): Raw email text.
+
+        Returns:
+            str: Cleaned text.
         """
 
         return " ".join(text.split())
 
     # ==========================================================
-    # MONTO
+    # AMOUNT
     # ==========================================================
 
     def extract_amount_raw(self, body):
         """
-        Devuelve el monto exactamente como aparece
-        en el correo.
+        Extracts the transaction amount exactly as it appears
+        in the email.
 
-        Ejemplos:
+        Examples:
+            ₡12,500.00
+            USD 25.75
+            $50.00
 
-        ₡12,500.00
+        Args:
+            body (str): Email body.
 
-        USD 25.75
-
-        $50.00
+        Returns:
+            str | None: Raw amount string.
         """
 
         match = re.search(
@@ -103,7 +136,13 @@ class BacParser:
 
     def extract_currency(self, amount):
         """
-        Determina la moneda.
+        Determines the transaction currency from the amount.
+
+        Args:
+            amount (str): Raw amount string.
+
+        Returns:
+            str | None: Currency code (CRC or USD).
         """
 
         if not amount:
@@ -121,15 +160,20 @@ class BacParser:
 
     def extract_amount_value(self, amount):
         """
-        Convierte el monto en float.
+        Converts the extracted amount into a numeric value.
 
-        Ejemplo:
+        Example:
+            ₡12,500.75
 
-        ₡12,500.75
+        becomes:
 
-        →
+            12500.75
 
-        12500.75
+        Args:
+            amount (str): Raw amount string.
+
+        Returns:
+            float | None: Parsed amount.
         """
 
         if not amount:
@@ -151,12 +195,9 @@ class BacParser:
 
         )
 
-        # BAC normalmente usa:
-        #
-        # 12,500.75
-        #
-        # quitamos separador de miles
-
+        # BAC emails typically use commas as thousands
+        # separators, so they are removed before converting
+        # the value to a float.
         value = value.replace(",", "")
 
         try:
@@ -166,12 +207,19 @@ class BacParser:
             return None
 
     # ==========================================================
-    # COMERCIO
+    # MERCHANT
     # ==========================================================
 
     def extract_merchant(self, body):
         """
-        Intenta encontrar el comercio.
+        Attempts to extract the merchant or business name
+        from the email.
+
+        Args:
+            body (str): Email body.
+
+        Returns:
+            str | None: Merchant name.
         """
 
         match = re.search(
@@ -187,13 +235,19 @@ class BacParser:
         return match.group(1).strip() if match else None
 
     # ==========================================================
-    # TARJETA
+    # CARD INFORMATION
     # ==========================================================
 
     def extract_card_last4(self, body):
         """
-        Obtiene los últimos cuatro dígitos
-        de la tarjeta.
+        Extracts the last four digits of the card used
+        for the transaction.
+
+        Args:
+            body (str): Email body.
+
+        Returns:
+            str | None: Last four card digits.
         """
 
         match = re.search(
@@ -209,12 +263,18 @@ class BacParser:
         return match.group(1) if match else None
 
     # ==========================================================
-    # FECHA
+    # TRANSACTION DATE
     # ==========================================================
 
     def extract_transaction_date(self, body):
         """
-        Busca una fecha dentro del correo.
+        Searches the email for a transaction date.
+
+        Args:
+            body (str): Email body.
+
+        Returns:
+            str | None: Extracted date.
         """
 
         match = re.search(
@@ -228,13 +288,19 @@ class BacParser:
         return match.group(0) if match else None
 
     # ==========================================================
-    # AUTORIZACIÓN
+    # AUTHORIZATION
     # ==========================================================
 
     def extract_authorization(self, body):
         """
-        Obtiene el código de autorización
-        o referencia.
+        Extracts the authorization or reference code
+        associated with the transaction.
+
+        Args:
+            body (str): Email body.
+
+        Returns:
+            str | None: Authorization/reference code.
         """
 
         match = re.search(
