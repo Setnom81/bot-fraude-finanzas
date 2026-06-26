@@ -8,6 +8,7 @@ venv/
 .env
 data/token.json
 data/credentials.json
+o365_token.txt
 
 # Generated data
 data/transactions.json

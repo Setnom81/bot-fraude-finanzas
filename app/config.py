@@ -1,3 +1,7 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 # Defines the Gmail API permissions required by the application.
 # The "gmail.modify" scope allows the app to read, modify, and label
 # Gmail messages without permanently deleting them.
@@ -38,3 +42,11 @@ QUERY_TEMPLATE = (
     'bac '
     'after:{start_date}'
 )
+
+# Load Outlook Credentials from .env
+OUTLOOK_CLIENT_ID = os.getenv('OUTLOOK_CLIENT_ID') 
+OUTLOOK_CLIENT_SECRET = os.getenv('OUTLOOK_CLIENT_SECRET')
+OUTLOOK_SUBJECT = os.getenv('OUTLOOK_SUBJECT')
+
+# Outlook Scopes
+outlook_scopes = ['https://graph.microsoft.com/Mail.ReadWrite', 'https://graph.microsoft.com/Mail.Send']
