@@ -103,7 +103,7 @@ docker compose up -d
 
 ---
 
-## 🏃Ejecución del Proyecto
+## Ejecución del Proyecto
 
 ### 1. Ingesta y Procesamiento de Datos (Orquestador)
 
