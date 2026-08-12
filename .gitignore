@@ -13,3 +13,9 @@ o365_token.txt
 # Generated data
 data/transactions.json
 logs/
+
+#logs
+service_error.log
+service_output.log
+startup.log
+startup.sh

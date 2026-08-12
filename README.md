@@ -1,177 +1,192 @@
-# Bot Fraude Finanzas 🛡️💳
+# Bot de Detección de Fraude Financiero (`bot-fraude-finanzas`)
 
-Sistema automatizado de ingesta, procesamiento e identificación de transacciones bancarias (BAC Credomatic) a partir de notificaciones por correo electrónico, diseñado para la posterior detección de anomalías y fraude mediante Machine Learning.
-
-Actualmente el proyecto:
-
-- **Ingesta multicanal:** Lee correos de notificación del BAC desde **Gmail API** y **Microsoft Outlook (Microsoft Graph API)**.
-- **Procesamiento inteligente:** Extrae datos estructurados (monto, comercio, fecha, tarjeta) evitando correos duplicados.
-- **Persistencia en MySQL:** Guarda transacciones procesadas y metadatos de sincronización en base de datos relacional.
-- **Entorno contenerizado:** Levanta la infraestructura de base de datos rápidamente con Docker Compose.
-- **Dashboard de Analytics:** Panel interactivo en **Streamlit** para exploración inicial de métricas y transacciones.
-- **Arquitectura modular:** Código estructurado en capas dentro de `src/` para escalabilidad.
+Sistema daemonizado y automatizado en Python para el monitoreo en tiempo real de notificaciones bancarias (BAC Credomatic) mediante **Microsoft Graph API (Outlook)** y **Gmail API**, evaluación de riesgo híbrida (Machine Learning + Motor de Reglas) y alertas instantáneas a dispositivos móviles mediante **Telegram Bot API**.
 
 ---
 
-## Requisitos Previos
+## Arquitectura del Sistema
 
-- **Python 3.11+**
-- **Docker y Docker Compose** (para la base de datos MySQL)
-- **Cuenta de Google** (si usas Gmail) con proyecto en Google Cloud
-- **Cuenta de Microsoft** (si usas Outlook) con aplicación registrada en Azure Portal
+```text
+[ Email Inbox (Outlook / Gmail) ]
+       │
+       ▼ (Polling cada 2 min / Ventana 5 min)
+[ outlook_listener.py ] ──► Deduplicación ──► [ Database (Storage) ]
+       │
+       ▼
+[ Data Preprocessor ] (Normalización UTC & Feature Engineering)
+       │
+       ▼
+[ Hybrid Evaluator ] (Modelo ML + Motor de Reglas)
+       │
+       ├──► Si es de Alto Riesgo ──► [ Telegram Bot API ]
+       └──► Si es Transacción Normal ──► Persistencia en BD
+```
 
 ---
 
-## Instalación y Configuración
+## Tecnologías Utilizadas
 
-### 1. Clonar el repositorio e instalar dependencias
+* **Lenguaje:** Python 3.12
+* **Integración API Email:** `O365` (Microsoft Graph API para Outlook), Gmail API
+* **Contenerización y Base de Datos:** Docker Compose, MySQL 8.0, Adminer
+* **Machine Learning & Datos:** `pandas`, `scikit-learn`, `joblib`
+* **Notificaciones:** Telegram Bot API
+* **Orquestación en Servidor:** Linux `systemd`, Scripting en Bash
+
+---
+
+## Estructura del Proyecto
+
+```text
+bot-fraude-finanzas/
+├── data/                        # Dataset local y almacenamiento de transacciones
+├── models/                      # Artefactos y modelos entrenados de ML (.joblib)
+├── notebooks/                   # Notebooks de Jupyter para EDA y experimentación
+├── src/
+│   ├── alerts/
+│   │   ├── notifier.py          # Orquestador central de notificaciones
+│   │   └── telegram.py          # Cliente de envío de alertas a Telegram API
+│   ├── core/
+│   │   └── models.py            # Modelos de datos y esquemas de dominio
+│   ├── dashboard/
+│   │   └── app.py               # Panel/Interfaz de visualización de métricas
+│   ├── database/
+│   │   └── storage.py           # Capa de persistencia y conexión a base de datos
+│   ├── ingestion/
+│   │   ├── parsers/
+│   │   │   └── bac_parser.py    # Extracción y limpieza de correos BAC Credomatic
+│   │   ├── gmail_client.py      # Cliente de ingesta vía Gmail API
+│   │   └── outlook_client.py    # Cliente de ingesta vía Microsoft Graph API (O365)
+│   ├── ml/
+│   │   ├── data_preprocessing.py# Preprocesamiento, fechas UTC y feature engineering
+│   │   ├── evaluator.py         # Evaluador híbrido de score de riesgo
+│   │   ├── inference.py         # Inferencia del modelo y disparo de alertas
+│   │   ├── model.py             # Clase de envoltura del modelo de ML
+│   │   └── train.py             # Script de entrenamiento y reentrenamiento del modelo
+│   ├── services/
+│   │   └── outlook_listener.py  # Daemon de monitoreo continuo en segundo plano
+│   ├── .env                     # Variables de entorno y llaves secretas (local)
+│   ├── .env.example             # Plantilla de variables de entorno
+│   ├── auth.py                  # Script de autenticación inicial OAuth
+│   ├── config.py                # Carga de configuración global y constantes
+│   └── main.py                  # Ingesta masiva inicial / Ejecución principal
+├── .gitignore
+├── docker-compose.yaml          # Infraestructura Docker (MySQL, Adminer)
+├── get-docker.sh                # Script auxiliar de instalación de Docker
+├── o365_token.txt               # Token de autenticación guardado por O365
+├── README.md                    # Documentación del proyecto
+├── requirements.txt             # Dependencias del proyecto
+└── startup.sh                   # Script Bash de orquestación para systemd
+```
+
+---
+
+## Configuración del Entorno
+
+Crea un archivo `.env` dentro de la carpeta `src/` basándote en `src/.env.example`:
+
+```env
+# Configuración de Base de Datos MySQL (Docker)
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=finance_db
+DB_USER=root
+DB_PASSWORD=tu_password_mysql
+
+# Credenciales de Microsoft Graph API (Outlook)
+OUTLOOK_CLIENT_ID="tu_outlook_client_id"
+OUTLOOK_CLIENT_SECRET="tu_outlook_client_secret"
+OUTLOOK_SUBJECT="Notificacion de transaccion"
+
+# Configuración del Bot de Telegram
+TELEGRAM_BOT_TOKEN="tu_telegram_bot_token"
+TELEGRAM_CHAT_ID="tu_telegram_chat_id"
+```
+
+---
+
+## Instalación y Despliegue
+
+### 1. Configurar entorno virtual Python
 
 ```bash
-git clone [https://github.com/Setnom81/bot-fraude-finanzas.git](https://github.com/Setnom81/bot-fraude-finanzas.git)
-cd bot-fraude-finanzas
-
-# Crear y activar entorno virtual
 python3 -m venv .venv
-source .venv/bin/activate  # En Linux/macOS
-# .venv\Scripts\activate   # En Windows
-
-# Instalar librerías
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
----
-
-### 2. Variables de Entorno (`.env`)
-
-Crea un archivo `.env` en la raíz del proyecto tomando como plantilla `.env.example`:
-
-```bash
-cp .env.example .env
-```
-
-Configura tus credenciales de base de datos y de las APIs correspondientes en `.env`:
-
-```env
-# MySQL Database Config
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=tu_password
-DB_NAME=bot_fraude_db
-
-# Microsoft Outlook API Config
-OUTLOOK_CLIENT_ID=tu_client_id_azure
-OUTLOOK_CLIENT_SECRET=tu_client_secret_azure
-```
-
----
-
-### 3. Configuración de Proveedores de Correo
-
-#### Opción A: Configurar Gmail API
-
-1. Ve a [Google Cloud Console](https://console.cloud.google.com/) y crea un proyecto.
-2. Habilita la **Gmail API** en *APIs y Servicios > Biblioteca*.
-3. Configura la *Pantalla de consentimiento OAuth* (tipo Externo) y añade tu correo en *Usuarios de prueba*.
-4. Crea credenciales de **ID de cliente OAuth (Aplicación de escritorio)**.
-5. Descarga el JSON, renómbralo a `credentials.json` y colócalo en la carpeta `data/`:
-   ```text
-   data/
-   └── credentials.json
-   ```
-6. Corre el script de autenticación inicial (se abrirá el navegador):
-   ```bash
-   python auth.py
-   ```
-
-#### Opción B: Configurar Outlook (Microsoft Graph API)
-
-1. Registra una aplicación en [Azure Portal (App registrations)](https://portal.azure.com/).
-2. Copia el **Application (client) ID** y crea un **Client Secret**.
-3. Agrégalos en tu archivo `.env` (`OUTLOOK_CLIENT_ID` y `OUTLOOK_CLIENT_SECRET`).
-4. Al ejecutar el programa por primera vez, el sistema solicitará autenticación vía URL para generar el token de sesión local `o365_token.txt`.
-
----
-
-### 4. Levantar la Base de Datos (MySQL)
-
-Asegúrate de tener Docker corriendo y ejecuta:
+### 2. Iniciar contenedores con Docker
 
 ```bash
 docker compose up -d
 ```
 
----
+### 3. Ejecución Manual (Pruebas)
 
-## Ejecución del Proyecto
+* **Ejecutar proceso principal (Backfill/Ingesta inicial):**
+  ```bash
+  python src/main.py
+  ```
 
-### 1. Ingesta y Procesamiento de Datos (Orquestador)
-
-Para ejecutar la lectura e ingesta de correos hacia MySQL:
-
-```bash
-python -m src.main
-```
-
-### 2. Visualización y Dashboard
-
-El proyecto incluye un dashboard básico de ejemplo desarrollado en **Streamlit** para visualización e inspección rápida de datos en tiempo real:
-
-```bash
-streamlit run src/dashboard/app.py
-```
-
-> **Nota sobre Visualización:** El dashboard en Streamlit es una implementación ligera de referencia para telemetría y exploración rápida (EDA). Dado que la información se almacena de forma estructurada en **MySQL**, el sistema es agnóstico a la capa de presentación y se puede conectar directamente a cualquier otra herramienta de Business Intelligence o visualización (como **Metabase, Power BI, Tableau o Grafana**).
+* **Iniciar el Daemon Listener manualmente:**
+  ```bash
+  python -m src.services.outlook_listener
+  ```
 
 ---
 
-## Arquitectura del Proyecto
+## Despliegue Automatizado en Servidor (`systemd`)
 
-```text
-bot-fraude-finanzas/
-├── docker-compose.yaml        # Servicios de infraestructura (MySQL)
-├── requirements.txt
-├── .env                       # Variables de entorno (Sensible)
-│
-├── notebooks/                 # Exploración de datos (EDA) y experimentos
-│
-└── src/                       # Código fuente modular
-    ├── config.py              # Carga de variables de entorno y constantes
-    ├── core/                  # Modelos de dominio y entidades
-    │   └── models.py
-    ├── ingestion/             # Clientes de API y Parsers de correo
-    │   ├── gmail_client.py
-    │   ├── outlook_client.py
-    │   └── parsers/
-    │       └── bac_parser.py
-    ├── database/              # Capa de almacenamiento y consultas SQL
-    │   └── storage.py
-    ├── dashboard/             # App de visualización interactiva (Streamlit)
-    │   └── app.py
-    ├── ml/                    # Feature engineering y modelos de detección
-    ├── alerts/                # Módulo de notificaciones (Telegram, etc.)
-    └── main.py                # Punto de entrada / Orquestador
-```
+El proyecto se ejecuta en segundo plano mediante `systemd` usando el orquestador `startup.sh`.
+
+### Configuración del servicio en Linux:
+
+1. Asignar permisos de ejecución al script:
+   ```bash
+   chmod +x startup.sh
+   ```
+
+2. Crear el archivo de servicio `systemd`:
+   ```bash
+   sudo nano /etc/systemd/system/bot-fraude.service
+   ```
+
+3. Contenido del servicio:
+   ```ini
+   [Unit]
+   Description=Bot Fraude Finanzas - Startup Service
+   After=network-online.target docker.service
+   Wants=network-online.target docker.service
+
+   [Service]
+   Type=simple
+   User=user
+   WorkingDirectory=
+   Environment="PYTHONPATH="
+   ExecStart=path/startup.sh
+   Restart=always
+   RestartSec=10
+   StandardOutput=append:path/bot-fraude-finanzas/service_output.log
+   StandardError=append:path/service_error.log
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+4. Habilitar y reiniciar el servicio:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable bot-fraude.service
+   sudo systemctl restart bot-fraude.service
+   ```
 
 ---
 
-## Archivos Sensibles y Seguridad
+## Alertas de Telegram
 
-Los siguientes archivos contienen información privada o credenciales de acceso y **NUNCA** deben subirse a Git (ya se encuentran en `.gitignore`):
+Cuando el evaluador identifica una transacción que supera el umbral de riesgo (`is_high_risk = True`), notifica instantáneamente vía Telegram:
 
-- `.env`
-- `o365_token.txt`
-- `data/credentials.json`
-- `data/token.json`
-
----
-
-## Próximas Mejoras
-
-- [x] Soporte multi-proveedor (Gmail + Outlook)
-- [x] Migración a base de datos relacional (MySQL)
-- [x] Dashboard de exploración básica (Streamlit)
-- [ ] Módulo de **Feature Engineering** (patrones de consumo por horario, tarjeta y comercio)
-- [ ] Entrenamiento e integración de **Modelo de Detección de Anomaly/Fraud** (Isolation Forest / Autoencoders)
-- [ ] Bot de **Telegram** para alertas instantáneas y retroalimentación de usuario
-- [ ] Integración con herramienta de BI (Metabase)
+* **Monto:** CRC 150,000.00  
+* **Comercio:** TIENDA DESCONOCIDA ONLINE  
+* **Fecha:** 2026-08-12 22:00:00 UTC  
+* **Score de Riesgo:** 92.50%
