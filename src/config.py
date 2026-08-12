@@ -54,5 +54,9 @@ outlook_scopes = ['https://graph.microsoft.com/Mail.ReadWrite', 'https://graph.m
 DB_HOST = "localhost"
 DB_PORT = 3306
 DB_USER = "app_user"
-DB_PASSWORD = "user_password_here"  # La contraseña definida en docker-compose.yml
+DB_PASSWORD = "user_password_here"
 DB_NAME = "finance_db"
+
+# Telegram Credentials
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")

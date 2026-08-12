@@ -1,137 +1,200 @@
+from datetime import datetime, timedelta, timezone
+import logging
 import re
-from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
 from O365 import Account
-from src.config import OUTLOOK_CLIENT_ID, OUTLOOK_CLIENT_SECRET, OUTLOOK_SUBJECT, outlook_scopes
+from src.config import (
+    OUTLOOK_CLIENT_ID,
+    OUTLOOK_CLIENT_SECRET,
+    OUTLOOK_SUBJECT,
+    outlook_scopes,
+)
+
 
 class OutlookClient:
+    """Wrapper around the Microsoft Graph API via O365 library.
+
+    Provides interface methods for authenticating, querying inbox messages,
+    extracting headers/bodies, and parsing recent financial transaction payloads.
     """
-    Wrapper around the Outlook API that provides helper methods for
-    searching messages, retrieving email content, and extracting
-    useful information from Outlook responses.
-    """
-        
-    def __init__(self):
-        # Stop initialization early if keys are missing
+
+    def __init__(self) -> None:
+        """Initializes the O365 Account instance and handles OAuth2 token authentication flow."""
         if not OUTLOOK_CLIENT_ID or not OUTLOOK_CLIENT_SECRET:
-            print("Missing credentials in env file")
-            self.account = None
+            logging.error(
+                "Initialization aborted: OUTLOOK_CLIENT_ID or OUTLOOK_CLIENT_SECRET is missing."
+            )
+            self.account: Optional[Account] = None
             return
-            
-        # Build the Account object
+
         credentials = (OUTLOOK_CLIENT_ID, OUTLOOK_CLIENT_SECRET)
         self.account = Account(credentials)
 
-        # Check and verify authentication status
         if not self.account.is_authenticated:
-            print("--- FIRST TIME LOGIN FLOW ---")
-            # This will print the URL to your console
+            logging.info("Initiating OAuth2 authorization flow...")
             self.account.authenticate(scopes=outlook_scopes)
-            print("\nAuthentication successful! A token has been saved locally.")
+            logging.info(
+                "OAuth2 authentication successful. Session token cached locally."
+            )
         else:
-            print("Already authenticated via saved token.")
+            logging.info(
+                "OAuth2 session successfully validated using cached credentials."
+            )
 
-    def search_messages(self, query=None):
-        """
-        Searches Outlook using the provided query string, translates date parameters,
-        and returns all matching messages as a list using an OData filter string.
+    def search_messages(self, query: Optional[str] = None) -> List[Any]:
+        """Queries the Outlook inbox using an OData filter derived from input search criteria.
 
         Args:
-            query (str): The Gmail-formatted search query string (e.g., contains 'after:YYYY/MM/DD').
+            query (Optional[str]): Search query containing optional 'after:YYYY/MM/DD' date bounds.
 
         Returns:
-            list: A list of O365 Message objects.
+            List[Any]: List of O365 Message objects matching the specified OData filter parameters.
         """
         if not self.account:
-            print("Cannot search messages: Missing account configuration.")
+            logging.error(
+                "Search execution failed: Account instance is uninitialized."
+            )
             return []
 
         mailbox = self.account.mailbox()
         inbox = mailbox.inbox_folder()
 
-        print("Fetching emails...")
+        logging.info("Querying Microsoft Graph API inbox endpoint...")
 
         filter_clauses = [f"contains(subject, '{OUTLOOK_SUBJECT}')"]
 
         if query and "after:" in query:
             try:
                 date_part = query.split("after:")[-1].strip().split()[0]
-                dt = datetime.strptime(date_part, "%Y/%m/%d").replace(tzinfo=timezone.utc)
-                
-                # Format to ISO 8601 UTC (ex: 2026-08-12T00:00:00Z)
+                dt = datetime.strptime(date_part, "%Y/%m/%d").replace(
+                    tzinfo=timezone.utc
+                )
+
+                # Format to ISO 8601 UTC string (e.g., 2026-08-12T00:00:00Z)
                 iso_date = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
                 filter_clauses.append(f"receivedDateTime ge {iso_date}")
             except Exception as e:
-                print(f"Warning: Could not parse dynamic date filter for Outlook: {e}")
+                logging.warning(
+                    f"Failed to parse dynamic date parameter into OData filter: {e}"
+                )
 
         odata_filter = " and ".join(filter_clauses)
-
         messages = list(inbox.get_messages(limit=9999, query=odata_filter))
 
         for message in messages:
-            print(f'Found: {message.subject}')
+            logging.debug(f"Retrieved email payload subject: {message.subject}")
 
         return messages
-    
-    def get_message(self, message_id):
-        """
-        Retrieves the full content of an Outlook message using its unique ID.
+
+    def get_message(self, message_id: str) -> Optional[Any]:
+        """Fetches a specific Outlook message object by its unique object ID.
 
         Args:
-            message_id (str): Outlook object message ID.
+            message_id (str): Unique Microsoft Graph API object identifier for the target message.
 
         Returns:
-            Message: Complete O365 Message object.
+            Optional[Any]: Complete O365 Message instance if located, otherwise None.
         """
         if not self.account:
-            print("Cannot get message: Missing account configuration.")
+            logging.error(
+                "Message retrieval failed: Account instance is uninitialized."
+            )
             return None
 
         mailbox = self.account.mailbox()
-        # Retrieves the specific message directly from Microsoft Graph API
         return mailbox.get_message(message_id)
 
-    def get_header(self, message, name):
-        """
-        Retrieves common metadata properties from an Outlook message object.
-        Because O365 parses properties natively, standard headseners are mapped directly.
+    def get_header(self, message: Any, name: str) -> str:
+        """Extracts standard email header metadata from an O365 Message entity.
 
         Args:
-            message (Message): The O365 Message object.
-            name (str): Property name (e.g., "Subject", "Date", "From").
+            message (Any): O365 Message object instance.
+            name (str): Target header attribute identifier (e.g., 'subject', 'date', 'from').
 
         Returns:
-            str: Property value string, or an empty string if not found.
+            str: Extracted metadata header string value, or empty string if not present.
         """
         name_lower = name.lower()
-        
+
         if name_lower == "subject":
             return message.subject or ""
-        elif name_lower == "date" or name_lower == "received":
+        elif name_lower in ("date", "received"):
             return str(message.received) if message.received else ""
         elif name_lower == "from":
             return message.sender.address if message.sender else ""
-        
-        # Fallback if you explicitly need access to custom raw network headers
+
         return ""
 
-    def get_body(self, message):
-        """
-        Extracts and cleans the body from an Outlook message object.
-        O365 gives us the text natively, meaning base64 decoding and multipart 
-        unrolling are completely bypassed.
+    def get_body(self, message: Any) -> str:
+        """Extracts, strips HTML tags from, and normalizes the body text of an O365 Message object.
 
         Args:
-            message (Message): The O365 Message object.
+            message (Any): O365 Message object instance.
 
         Returns:
-            str: Cleaned and normalized text body.
+            str: Sanitized and whitespace-normalized plaintext message body string.
         """
-        # O365 populates body with text/plain if available, otherwise text/html
         body = message.body or ""
-        
-        # Check if the body contains HTML tags to clean them up (replicates your Gmail logic)
+
+        # Strip inline HTML markup if detected in body payload
         if "<" in body and ">" in body:
             body = re.sub(r"<[^>]+>", " ", body)
 
-        # Normalizes whitespace before returning
+        # Normalize redundant whitespace and line breaks
         return " ".join(body.split())
+
+    def fetch_recent_transactions(
+        self, minutes_back: int = 15
+    ) -> List[Dict[str, Any]]:
+        """Retrieves transaction notification emails received within the designated temporal window.
+
+        Args:
+            minutes_back (int): Trailing time window length in minutes to query backwards from UTC now.
+
+        Returns:
+            List[Dict[str, Any]]: List of parsed email dictionaries containing ID, subject, sender,
+                timestamp, and plain text body.
+        """
+        if not self.account:
+            logging.error(
+                "Transaction fetch failed: Account instance is uninitialized."
+            )
+            return []
+
+        mailbox = self.account.mailbox()
+        inbox = mailbox.inbox_folder()
+
+        # 1. Compute UTC timestamp cutoff for OData filter window
+        time_threshold = datetime.now(timezone.utc) - timedelta(
+            minutes=minutes_back
+        )
+        iso_date = time_threshold.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # 2. Construct OData filter query clause: Subject matching AND receivedDateTime threshold
+        filter_clauses = [
+            f"contains(subject, '{OUTLOOK_SUBJECT}')",
+            f"receivedDateTime ge {iso_date}",
+        ]
+        odata_filter = " and ".join(filter_clauses)
+
+        logging.info(
+            f"Querying transaction email notifications received since: {iso_date} UTC..."
+        )
+
+        # 3. Execute Microsoft Graph API request
+        messages = list(inbox.get_messages(limit=50, query=odata_filter))
+
+        parsed_emails: List[Dict[str, Any]] = []
+        for msg in messages:
+            parsed_emails.append(
+                {
+                    "id": msg.object_id,
+                    "subject": self.get_header(msg, "subject"),
+                    "from": self.get_header(msg, "from"),
+                    "date": str(msg.received),
+                    "body": self.get_body(msg),
+                }
+            )
+
+        return parsed_emails
