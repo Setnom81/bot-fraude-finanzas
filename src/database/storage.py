@@ -6,7 +6,7 @@ import pandas as pd
 
 # Imports application configuration constants.
 # Asegúrate de agregar las constantes de conexión DB a tu config.py
-from config import (
+from src.config import (
     DB_HOST,
     DB_PORT,
     DB_USER,
@@ -90,7 +90,6 @@ class TransactionStorage:
         try:
             with conn.cursor() as cursor:
                 cursor.execute("SELECT * FROM transactions ORDER BY email_date DESC")
-                # 🔹 Convertir el resultado de tupla a lista:
                 transactions = list(cursor.fetchall())
                 
                 for tx in transactions:

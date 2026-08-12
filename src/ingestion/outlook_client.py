@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timezone
 from O365 import Account
-from config import OUTLOOK_CLIENT_ID, OUTLOOK_CLIENT_SECRET, OUTLOOK_SUBJECT, outlook_scopes
+from src.config import OUTLOOK_CLIENT_ID, OUTLOOK_CLIENT_SECRET, OUTLOOK_SUBJECT, outlook_scopes
 
 class OutlookClient:
     """

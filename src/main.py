@@ -2,7 +2,7 @@ from datetime import datetime
 import os
 
 # Imports application configuration constants.
-from config import (
+from src.config import (
     DEFAULT_START_DATE, 
     QUERY_TEMPLATE, 
     OUTLOOK_CLIENT_ID, 
@@ -10,14 +10,14 @@ from config import (
 )
 
 # Imports the clients responsible for interacting with the email APIs.
-from gmail_client import GmailClient
-from outlook_client import OutlookClient  # Your new Outlook wrapper
+from src.ingestion.gmail_client import GmailClient
+from src.ingestion.outlook_client import OutlookClient  # Your new Outlook wrapper
 
 # Imports the parser responsible for extracting transaction data from BAC notification emails.
-from parser import BacParser
+from src.ingestion.parsers.bac_parser import BacParser
 
 # Imports the storage layer used to persist processed transactions and synchronization metadata.
-from storage import TransactionStorage
+from src.database.storage import TransactionStorage
 
 
 def iso_to_gmail_date(value):
