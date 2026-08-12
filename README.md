@@ -1,4 +1,4 @@
-# Bot Fraude Finanzas
+# Bot Fraude Finanzas 🛡️💳
 
 Sistema automatizado de ingesta, procesamiento e identificación de transacciones bancarias (BAC Credomatic) a partir de notificaciones por correo electrónico, diseñado para la posterior detección de anomalías y fraude mediante Machine Learning.
 
@@ -8,6 +8,7 @@ Actualmente el proyecto:
 - **Procesamiento inteligente:** Extrae datos estructurados (monto, comercio, fecha, tarjeta) evitando correos duplicados.
 - **Persistencia en MySQL:** Guarda transacciones procesadas y metadatos de sincronización en base de datos relacional.
 - **Entorno contenerizado:** Levanta la infraestructura de base de datos rápidamente con Docker Compose.
+- **Dashboard de Analytics:** Panel interactivo en **Streamlit** para exploración inicial de métricas y transacciones.
 - **Arquitectura modular:** Código estructurado en capas dentro de `src/` para escalabilidad.
 
 ---
@@ -104,17 +105,23 @@ docker compose up -d
 
 ## Ejecución del Proyecto
 
-Para correr el orquestador principal utilizando la nueva arquitectura de módulos:
+### 1. Ingesta y Procesamiento de Datos (Orquestador)
+
+Para ejecutar la lectura e ingesta de correos hacia MySQL:
 
 ```bash
 python -m src.main
 ```
 
-El programa ejecutará el siguiente flujo:
-1. Inspecciona los clientes de correo configurados y disponibles (Gmail / Outlook).
-2. Lee y filtra los correos de transacciones bancarias.
-3. Descarta los mensajes previamente procesados analizando sus IDs en MySQL.
-4. Parsea los datos de las nuevas transacciones y los inserta de forma estructurada en la base de datos.
+### 2. Visualización y Dashboard
+
+El proyecto incluye un dashboard básico de ejemplo desarrollado en **Streamlit** para visualización e inspección rápida de datos en tiempo real:
+
+```bash
+streamlit run src/dashboard/app.py
+```
+
+> **Nota sobre Visualización:** El dashboard en Streamlit es una implementación ligera de referencia para telemetría y exploración rápida (EDA). Dado que la información se almacena de forma estructurada en **MySQL**, el sistema es agnóstico a la capa de presentación y se puede conectar directamente a cualquier otra herramienta de Business Intelligence o visualización (como **Metabase, Power BI, Tableau o Grafana**).
 
 ---
 
@@ -139,6 +146,8 @@ bot-fraude-finanzas/
     │       └── bac_parser.py
     ├── database/              # Capa de almacenamiento y consultas SQL
     │   └── storage.py
+    ├── dashboard/             # App de visualización interactiva (Streamlit)
+    │   └── app.py
     ├── ml/                    # Feature engineering y modelos de detección
     ├── alerts/                # Módulo de notificaciones (Telegram, etc.)
     └── main.py                # Punto de entrada / Orquestador
@@ -161,7 +170,8 @@ Los siguientes archivos contienen información privada o credenciales de acceso 
 
 - [x] Soporte multi-proveedor (Gmail + Outlook)
 - [x] Migración a base de datos relacional (MySQL)
+- [x] Dashboard de exploración básica (Streamlit)
 - [ ] Módulo de **Feature Engineering** (patrones de consumo por horario, tarjeta y comercio)
 - [ ] Entrenamiento e integración de **Modelo de Detección de Anomaly/Fraud** (Isolation Forest / Autoencoders)
 - [ ] Bot de **Telegram** para alertas instantáneas y retroalimentación de usuario
-- [ ] Dashboard de control financiero en **Metabase**
+- [ ] Integración con herramienta de BI (Metabase)
