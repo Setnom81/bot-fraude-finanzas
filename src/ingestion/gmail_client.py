@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 
 # Imports the application's Gmail API scopes and the location of the
 # stored OAuth token.
-from app.config import SCOPES, TOKEN_FILE
+from config import SCOPES, TOKEN_FILE
 
 
 class GmailClient:

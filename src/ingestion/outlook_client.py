@@ -1,7 +1,7 @@
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from O365 import Account
-from app.config import OUTLOOK_CLIENT_ID, OUTLOOK_CLIENT_SECRET, OUTLOOK_SUBJECT, outlook_scopes
+from config import OUTLOOK_CLIENT_ID, OUTLOOK_CLIENT_SECRET, OUTLOOK_SUBJECT, outlook_scopes
 
 class OutlookClient:
     """
@@ -33,7 +33,7 @@ class OutlookClient:
     def search_messages(self, query=None):
         """
         Searches Outlook using the provided query string, translates date parameters,
-        and returns all matching messages as a list.
+        and returns all matching messages as a list using an OData filter string.
 
         Args:
             query (str): The Gmail-formatted search query string (e.g., contains 'after:YYYY/MM/DD').
@@ -48,32 +48,28 @@ class OutlookClient:
         mailbox = self.account.mailbox()
         inbox = mailbox.inbox_folder()
 
-        print("Fetching emails")
-        
-        # 1. Create the base query builder
-        builder = inbox.new_query()
-        
-        # Define our primary subject filter clause
-        subject_clause = builder.contains('subject', OUTLOOK_SUBJECT)
-        final_query = subject_clause
+        print("Fetching emails...")
 
-        # If a dynamic date string is passed, chain them together using chain_and
+        # 1. Crear cláusula base para el asunto
+        filter_clauses = [f"contains(subject, '{OUTLOOK_SUBJECT}')"]
+
+        # 2. Parsear el filtro 'after:' si viene en el query
         if query and "after:" in query:
             try:
-                date_part = query.split("after:")[-1].strip()
-                formatted_timestamp = datetime.strptime(date_part, "%Y/%m/%d")
+                date_part = query.split("after:")[-1].strip().split()[0]
+                dt = datetime.strptime(date_part, "%Y/%m/%d").replace(tzinfo=timezone.utc)
                 
-                # Define the date filter clause
-                date_clause = builder.greater_equal('received_date_time', formatted_timestamp)
-                
-                # Use the exact doc syntax to logically merge both clauses
-                final_query = builder.chain_and(subject_clause, date_clause)
-                
+                # Formatear a estándar ISO 8601 UTC (ejemplo: 2026-08-12T00:00:00Z)
+                iso_date = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                filter_clauses.append(f"receivedDateTime ge {iso_date}")
             except Exception as e:
                 print(f"Warning: Could not parse dynamic date filter for Outlook: {e}")
 
-        # 4. Pull results from Microsoft Graph using our combined query
-        messages = list(inbox.get_messages(limit=9999, query=final_query))
+        # 3. Unir los filtros con 'and' para la sintaxis OData
+        odata_filter = " and ".join(filter_clauses)
+
+        # 4. Consultar Microsoft Graph directamente con la cadena OData
+        messages = list(inbox.get_messages(limit=9999, query=odata_filter))
 
         for message in messages:
             print(f'Found: {message.subject}')

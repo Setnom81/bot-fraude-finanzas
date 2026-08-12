@@ -12,7 +12,7 @@ each bank should have its own dedicated parser
 import re
 from datetime import datetime
 
-from app.models import Transaction
+from models import Transaction
 
 
 class BacParser:

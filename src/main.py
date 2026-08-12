@@ -2,7 +2,7 @@ from datetime import datetime
 import os
 
 # Imports application configuration constants.
-from app.config import (
+from config import (
     DEFAULT_START_DATE, 
     QUERY_TEMPLATE, 
     OUTLOOK_CLIENT_ID, 
@@ -10,14 +10,14 @@ from app.config import (
 )
 
 # Imports the clients responsible for interacting with the email APIs.
-from app.gmail_client import GmailClient
-from app.outlook_client import OutlookClient  # Your new Outlook wrapper
+from gmail_client import GmailClient
+from outlook_client import OutlookClient  # Your new Outlook wrapper
 
 # Imports the parser responsible for extracting transaction data from BAC notification emails.
-from app.parser import BacParser
+from parser import BacParser
 
 # Imports the storage layer used to persist processed transactions and synchronization metadata.
-from app.storage import TransactionStorage
+from storage import TransactionStorage
 
 
 def iso_to_gmail_date(value):
@@ -81,7 +81,7 @@ def main():
 
     # Determines the starting date for searching messages.
     start_date = iso_to_gmail_date(data.get("last_sync"))
-    query = QUERY_TEMPLATE.format(start_date=start_date)
+    query = QUERY_TEMPLATE
 
     parser = BacParser()
     processed_ids = storage.get_processed_ids(data)
