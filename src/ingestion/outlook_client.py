@@ -50,25 +50,21 @@ class OutlookClient:
 
         print("Fetching emails...")
 
-        # 1. Crear cláusula base para el asunto
         filter_clauses = [f"contains(subject, '{OUTLOOK_SUBJECT}')"]
 
-        # 2. Parsear el filtro 'after:' si viene en el query
         if query and "after:" in query:
             try:
                 date_part = query.split("after:")[-1].strip().split()[0]
                 dt = datetime.strptime(date_part, "%Y/%m/%d").replace(tzinfo=timezone.utc)
                 
-                # Formatear a estándar ISO 8601 UTC (ejemplo: 2026-08-12T00:00:00Z)
+                # Format to ISO 8601 UTC (ex: 2026-08-12T00:00:00Z)
                 iso_date = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
                 filter_clauses.append(f"receivedDateTime ge {iso_date}")
             except Exception as e:
                 print(f"Warning: Could not parse dynamic date filter for Outlook: {e}")
 
-        # 3. Unir los filtros con 'and' para la sintaxis OData
         odata_filter = " and ".join(filter_clauses)
 
-        # 4. Consultar Microsoft Graph directamente con la cadena OData
         messages = list(inbox.get_messages(limit=9999, query=odata_filter))
 
         for message in messages:
@@ -86,6 +82,10 @@ class OutlookClient:
         Returns:
             Message: Complete O365 Message object.
         """
+        if not self.account:
+            print("Cannot get message: Missing account configuration.")
+            return None
+
         mailbox = self.account.mailbox()
         # Retrieves the specific message directly from Microsoft Graph API
         return mailbox.get_message(message_id)
