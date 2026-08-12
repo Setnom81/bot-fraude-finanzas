@@ -1,10 +1,10 @@
-# 🛡️ Bot de Detección de Fraude Financiero (`bot-fraude-finanzas`)
+# Bot de Detección de Fraude Financiero (`bot-fraude-finanzas`)
 
 Sistema daemonizado y automatizado en Python para el monitoreo en tiempo real de notificaciones bancarias (BAC Credomatic) mediante **Microsoft Graph API (Outlook)** y **Gmail API**, evaluación de riesgo híbrida (Machine Learning + Motor de Reglas) y alertas instantáneas a dispositivos móviles mediante **Telegram Bot API**.
 
 ---
 
-## 📐 Arquitectura del Sistema
+## Arquitectura del Sistema
 
 ```text
 [ Email Inbox (Outlook / Gmail) ]
