@@ -1,258 +1,167 @@
-# bot-fraude-finanzas
-
 # Bot Fraude Finanzas
 
-Bot para leer automáticamente notificaciones de transacciones del BAC desde Gmail utilizando la Gmail API.
+Sistema automatizado de ingesta, procesamiento e identificación de transacciones bancarias (BAC Credomatic) a partir de notificaciones por correo electrónico, diseñado para la posterior detección de anomalías y fraude mediante Machine Learning.
 
 Actualmente el proyecto:
 
-- Se autentica mediante OAuth 2.0.
-- Lee correos del BAC.
-- Extrae información de la transacción.
-- Guarda las transacciones en formato JSON.
-- Evita procesar correos duplicados.
+- **Ingesta multicanal:** Lee correos de notificación del BAC desde **Gmail API** y **Microsoft Outlook (Microsoft Graph API)**.
+- **Procesamiento inteligente:** Extrae datos estructurados (monto, comercio, fecha, tarjeta) evitando correos duplicados.
+- **Persistencia en MySQL:** Guarda transacciones procesadas y metadatos de sincronización en base de datos relacional.
+- **Entorno contenerizado:** Levanta la infraestructura de base de datos rápidamente con Docker Compose.
+- **Arquitectura modular:** Código estructurado en capas dentro de `src/` para escalabilidad.
 
 ---
 
-# Requisitos
+## Requisitos Previos
 
-- Python 3.11+
-- Cuenta de Gmail
-- Proyecto en Google Cloud
+- **Python 3.11+**
+- **Docker y Docker Compose** (para la base de datos MySQL)
+- **Cuenta de Google** (si usas Gmail) con proyecto en Google Cloud
+- **Cuenta de Microsoft** (si usas Outlook) con aplicación registrada en Azure Portal
 
 ---
 
-# Instalación
+## Instalación y Configuración
 
-Clonar el proyecto
+### 1. Clonar el repositorio e instalar dependencias
 
 ```bash
-git clone https://github.com/Setnom81/bot-fraude-finanzas.git
-
+git clone [https://github.com/Setnom81/bot-fraude-finanzas.git](https://github.com/Setnom81/bot-fraude-finanzas.git)
 cd bot-fraude-finanzas
-```
 
-Instalar dependencias
+# Crear y activar entorno virtual
+python3 -m venv .venv
+source .venv/bin/activate  # En Linux/macOS
+# .venv\Scripts\activate   # En Windows
 
-```bash
+# Instalar librerías
 pip install -r requirements.txt
 ```
 
 ---
 
-# Configuración de Gmail API
+### 2. Variables de Entorno (`.env`)
 
-## 1. Crear un proyecto
-
-Ir a:
-
-https://console.cloud.google.com/
-
-Crear un nuevo proyecto.
-
----
-
-## 2. Habilitar Gmail API
-
-Entrar a:
-
-APIs y Servicios
-
-↓
-
-Biblioteca
-
-↓
-
-Buscar
-
-```
-Gmail API
-```
-
-↓
-
-Habilitar.
-
----
-
-## 3. Configurar OAuth
-
-Ir a
-
-```
-APIs y Servicios
-
-↓
-
-Pantalla de consentimiento OAuth
-```
-
-Seleccionar
-
-```
-Externo
-```
-
-Agregar:
-
-- Nombre de la aplicación
-- Correo de soporte
-- Correo del desarrollador
-
-Guardar.
-
----
-
-## 4. Agregar usuario de prueba
-
-Ir a
-
-```
-Pantalla de consentimiento OAuth
-
-↓
-
-Público
-
-↓
-
-Usuarios de prueba
-```
-
-Agregar el correo Gmail que utilizará el bot.
-
----
-
-## 5. Crear credenciales
-
-Ir a
-
-```
-APIs y Servicios
-
-↓
-
-Credenciales
-
-↓
-
-Crear credenciales
-
-↓
-
-ID de cliente OAuth
-```
-
-Seleccionar
-
-```
-Aplicación de escritorio
-```
-
-Descargar el archivo JSON.
-
-Renombrarlo a
-
-```
-credentials.json
-```
-
-Moverlo a
-
-```
-data/
-```
-
-La estructura deberá quedar así
-
-```
-data/
-├── credentials.json
-```
-
----
-
-# Generar token.json
-
-La primera vez es necesario autenticarse con Gmail.
-
-Ejecutar
+Crea un archivo `.env` en la raíz del proyecto tomando como plantilla `.env.example`:
 
 ```bash
-python auth.py
+cp .env.example .env
 ```
 
-Se abrirá el navegador.
+Configura tus credenciales de base de datos y de las APIs correspondientes en `.env`:
 
-Seleccionar la cuenta Gmail autorizada.
+```env
+# MySQL Database Config
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=tu_password
+DB_NAME=bot_fraude_db
 
-Aceptar los permisos.
-
-Al finalizar se generará automáticamente
-
+# Microsoft Outlook API Config
+OUTLOOK_CLIENT_ID=tu_client_id_azure
+OUTLOOK_CLIENT_SECRET=tu_client_secret_azure
 ```
-data/token.json
-```
-
-Este archivo contiene el token OAuth y **NO debe subirse al repositorio**.
 
 ---
 
-# Ejecutar el proyecto
+### 3. Configuración de Proveedores de Correo
 
-Una vez generado el token
+#### Opción A: Configurar Gmail API
+
+1. Ve a [Google Cloud Console](https://console.cloud.google.com/) y crea un proyecto.
+2. Habilita la **Gmail API** en *APIs y Servicios > Biblioteca*.
+3. Configura la *Pantalla de consentimiento OAuth* (tipo Externo) y añade tu correo en *Usuarios de prueba*.
+4. Crea credenciales de **ID de cliente OAuth (Aplicación de escritorio)**.
+5. Descarga el JSON, renómbralo a `credentials.json` y colócalo en la carpeta `data/`:
+   ```text
+   data/
+   └── credentials.json
+   ```
+6. Corre el script de autenticación inicial (se abrirá el navegador):
+   ```bash
+   python auth.py
+   ```
+
+#### Opción B: Configurar Outlook (Microsoft Graph API)
+
+1. Registra una aplicación en [Azure Portal (App registrations)](https://portal.azure.com/).
+2. Copia el **Application (client) ID** y crea un **Client Secret**.
+3. Agrégalos en tu archivo `.env` (`OUTLOOK_CLIENT_ID` y `OUTLOOK_CLIENT_SECRET`).
+4. Al ejecutar el programa por primera vez, el sistema solicitará autenticación vía URL para generar el token de sesión local `o365_token.txt`.
+
+---
+
+### 4. Levantar la Base de Datos (MySQL)
+
+Asegúrate de tener Docker corriendo y ejecuta:
 
 ```bash
-python main.py
-```
-
-El programa:
-
-- Busca correos del BAC.
-- Procesa únicamente correos nuevos.
-- Extrae la información de la transacción.
-- Guarda los resultados en
-
-```
-data/transactions.json
+docker compose up -d
 ```
 
 ---
 
-# Archivos sensibles
+## Ejecución del Proyecto
 
-Los siguientes archivos están ignorados por Git.
+Para correr el orquestador principal utilizando la nueva arquitectura de módulos:
 
-```
-data/token.json
-data/credentials.json
-data/transactions.json
-.env
+```bash
+python -m src.main
 ```
 
-Nunca deben subirse al repositorio.
+El programa ejecutará el siguiente flujo:
+1. Inspecciona los clientes de correo configurados y disponibles (Gmail / Outlook).
+2. Lee y filtra los correos de transacciones bancarias.
+3. Descarta los mensajes previamente procesados analizando sus IDs en MySQL.
+4. Parsea los datos de las nuevas transacciones y los inserta de forma estructurada en la base de datos.
 
 ---
 
-# Arquitectura
+## Arquitectura del Proyecto
 
-```
-gmail_client.py
-parser.py
-storage.py
-models.py
-config.py
-main.py
+```text
+bot-fraude-finanzas/
+├── docker-compose.yaml        # Servicios de infraestructura (MySQL)
+├── requirements.txt
+├── .env                       # Variables de entorno (Sensible)
+│
+├── notebooks/                 # Exploración de datos (EDA) y experimentos
+│
+└── src/                       # Código fuente modular
+    ├── config.py              # Carga de variables de entorno y constantes
+    ├── core/                  # Modelos de dominio y entidades
+    │   └── models.py
+    ├── ingestion/             # Clientes de API y Parsers de correo
+    │   ├── gmail_client.py
+    │   ├── outlook_client.py
+    │   └── parsers/
+    │       └── bac_parser.py
+    ├── database/              # Capa de almacenamiento y consultas SQL
+    │   └── storage.py
+    ├── ml/                    # Feature engineering y modelos de detección
+    ├── alerts/                # Módulo de notificaciones (Telegram, etc.)
+    └── main.py                # Punto de entrada / Orquestador
 ```
 
 ---
 
-# Próximas mejoras
+## Archivos Sensibles y Seguridad
 
-- SQLite
-- Dashboard
-- Reportes
-- Soporte para otros bancos
-- Clasificación automática de gastos
-- Detección de fraude
+Los siguientes archivos contienen información privada o credenciales de acceso y **NUNCA** deben subirse a Git (ya se encuentran en `.gitignore`):
+
+- `.env`
+- `o365_token.txt`
+- `data/credentials.json`
+- `data/token.json`
+
+---
+
+## Próximas Mejoras
+
+- [x] Soporte multi-proveedor (Gmail + Outlook)
+- [x] Migración a base de datos relacional (MySQL)
+- [ ] Módulo de **Feature Engineering** (patrones de consumo por horario, tarjeta y comercio)
+- [ ] Entrenamiento e integración de **Modelo de Detección de Anomaly/Fraud** (Isolation Forest / Autoencoders)
+- [ ] Bot de **Telegram** para alertas instantáneas y retroalimentación de usuario
+- [ ] Dashboard de control financiero en **Metabase**

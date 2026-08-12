@@ -40,7 +40,6 @@ DEFAULT_START_DATE = "2026/01/01"
 QUERY_TEMPLATE = (
     'subject:"Notificación de transacción" '
     'bac '
-    'after:{start_date}'
 )
 
 # Load Outlook Credentials from .env
@@ -50,3 +49,10 @@ OUTLOOK_SUBJECT = os.getenv('OUTLOOK_SUBJECT')
 
 # Outlook Scopes
 outlook_scopes = ['https://graph.microsoft.com/Mail.ReadWrite', 'https://graph.microsoft.com/Mail.Send']
+
+# Database Configuration
+DB_HOST = "localhost"
+DB_PORT = 3306
+DB_USER = "app_user"
+DB_PASSWORD = "user_password_here"  # La contraseña definida en docker-compose.yml
+DB_NAME = "finance_db"
