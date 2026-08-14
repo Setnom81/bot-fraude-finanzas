@@ -1,5 +1,6 @@
 from pathlib import Path
 import pandas as pd
+import logging
 from src.database.storage import TransactionStorage
 from src.ml.data_preprocessing import DataPreprocessor
 from src.ml.model import FraudDetector
@@ -59,13 +60,16 @@ def process_and_alert_new_transactions(new_transactions: list[dict]) -> list[dic
     high_risk_list = []
 
     for idx, row in df_evaluated.iterrows():
+        tx_dict = row.to_dict()
+        risk_score = row.get("hybrid_risk_score", 0.0)
+        merchant = row.get("merchant", "Unknown")
+
+        # Sends Telegram alert if necessary or just logs score.
         if row.get("is_high_risk", False):
-            tx_dict = row.to_dict()
-            risk_score = row.get("hybrid_risk_score", None)
-            
-            # Enviar alerta directa a Telegram
             send_telegram_alert(transaction=tx_dict, risk_score=risk_score)
-            
             high_risk_list.append(tx_dict)
+        else:
+            score_fmt = f"{risk_score:.2f}" if isinstance(risk_score, (int, float)) else risk_score
+            logging.info(f"Transaction at '{merchant}' processed with a low risk score of {score_fmt}")
 
     return high_risk_list
