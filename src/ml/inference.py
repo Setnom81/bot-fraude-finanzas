@@ -61,11 +61,12 @@ def process_and_alert_new_transactions(new_transactions: list[dict]) -> list[dic
 
     for idx, row in df_evaluated.iterrows():
         tx_dict = row.to_dict()
-        risk_score = row.get("hybrid_risk_score", 0.0)
+        
+        risk_score = row.get("final_risk_score", row.get("hybrid_risk_score", row.get("risk_score", 0.0)))
         merchant = row.get("merchant", "Unknown")
 
-        # Sends Telegram alert if necessary or just logs score.
         if row.get("is_high_risk", False):
+            tx_dict["risk_score"] = risk_score
             send_telegram_alert(transaction=tx_dict, risk_score=risk_score)
             high_risk_list.append(tx_dict)
         else:
