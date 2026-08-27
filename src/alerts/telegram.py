@@ -38,7 +38,8 @@ def send_telegram_alert(
     )
 
     if risk_score is not None:
-        message += f"<b>Risk Score:</b> {risk_score:.2%}\n"
+        clean_score = min(float(risk_score), 100.0)
+        message += f"<b>Risk Score:</b> {clean_score:.2f}%\n"
 
     message += "\n<i>Please verify this transaction if unrecognised.</i>"
 
