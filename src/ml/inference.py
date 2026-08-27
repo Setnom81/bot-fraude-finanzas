@@ -1,75 +1,97 @@
-from pathlib import Path
-import pandas as pd
 import logging
+from pathlib import Path
+from typing import Any, Dict, List
+import pandas as pd
+
+from src.alerts.telegram import send_telegram_alert
 from src.database.storage import TransactionStorage
 from src.ml.data_preprocessing import DataPreprocessor
-from src.ml.model import FraudDetector
 from src.ml.evaluator import FraudEvaluator
-from src.alerts.telegram import send_telegram_alert
+from src.ml.model import FraudDetector
 
 
-def process_and_alert_new_transactions(new_transactions: list[dict]) -> list[dict]:
-    """
-    Evaluates newly fetched transactions against the ML model + Rule Engine
-    and triggers instant notifications via Telegram if high risk.
+def process_and_alert_new_transactions(new_transactions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Evaluates incoming transaction payloads against a hybrid risk architecture.
+
+    Integrates Isolation Forest unsupervised anomaly scores with a domain heuristic
+    rule engine, triggering instant alerts for high-risk transactions.
 
     Args:
-        new_transactions (list[dict]): List of newly parsed transaction dictionaries.
+        new_transactions (List[Dict[str, Any]]): List of newly parsed transaction dictionaries.
 
     Returns:
-        list[dict]: List of high-risk transactions triggered.
+        List[Dict[str, Any]]: List of high-risk transaction records flagged by the evaluator.
     """
     if not new_transactions:
+        logging.info("Empty transaction payload received. Aborting inference execution.")
         return []
 
+    # 1. Model Artifact Verification
     model_path = Path("models/fraud_model.joblib")
     if not model_path.exists():
-        print("Model artifact not found. Please run 'python -m src.ml.train' first.")
+        logging.warning("Trained model binary not found at %s. Execute training pipeline first.", model_path)
         return []
 
-    # 1. Combine historical data with new ones to accurately calculate 'is_new_merchant'
+    # 2. Historical Context Retrieval & State Isolation
     storage = TransactionStorage()
     historical_raw = storage.load().get("transactions", [])
     
     df_history = pd.DataFrame(historical_raw)
     df_new = pd.DataFrame(new_transactions)
 
-    # Combine history + new to compute sequential features
+    # Preventing Historical Context Pollution: If incoming records were pre-persisted 
+    # to storage prior to evaluation, slice out the tail records to ensure 
+    # sequential feature engineering (e.g., 'is_new_merchant') remains accurate.
+    if not df_history.empty and "merchant" in df_history.columns:
+        df_history = df_history[~df_history.index.isin(df_history.tail(len(new_transactions)).index)]
+
+    # Concatenate historical baseline with newly arrived slice for sequential feature engineering
     df_combined = pd.concat([df_history, df_new], ignore_index=True)
 
-    # 2. Preprocess combined dataframe
+    # 3. Feature Preprocessing & Transformation Pipeline
     preprocessor = DataPreprocessor()
     df_processed = preprocessor.fit_transform(df_combined)
     feature_cols = preprocessor.get_feature_columns()
 
-    # Get index slice corresponding to newly arrived transactions only
-    new_indices = df_processed.index[-len(new_transactions):]
-    df_new_features = df_processed.loc[new_indices]
+    # Extract new transaction feature vector and explicitly reset index to prevent structural misalignment
+    df_new_features = df_processed.iloc[-len(new_transactions):].reset_index(drop=True)
 
-    # 3. Load trained model & predict
+    # 4. Machine Learning Model Inference
     detector = FraudDetector()
     detector.load_model(model_path)
-    ml_results = detector.predict(df_new_features[feature_cols])
+    
+    # Execute batch anomaly scoring and guarantee zero-indexed DataFrame alignment
+    ml_results = detector.predict(df_new_features[feature_cols]).reset_index(drop=True)
 
-    # 4. Evaluate hybrid risk score on new transactions
-    df_eval_input = df_new_features.join(ml_results)
-    evaluator = FraudEvaluator(ml_weight=0.3, rules_weight=0.7, risk_threshold=50.0)
+    # 5. Matrix Concatenation & Index Alignment Fix
+    # Perform column-wise concatenation on strictly aligned zero-based indices to eliminate NaNs
+    df_eval_input = pd.concat([df_new_features, ml_results], axis=1)
+
+    # 6. Hybrid Risk Engine Evaluation
+    evaluator = FraudEvaluator(ml_weight=0.5, rules_weight=0.5, risk_threshold=50.0)
     df_evaluated = evaluator.calculate_hybrid_risk(df_eval_input)
 
-    # 5. Filter high-risk transactions and trigger Telegram alerts
-    high_risk_list = []
+    # 7. Decision Routing & Alert Dispatch Loop
+    high_risk_list: List[Dict[str, Any]] = []
 
     for idx, row in df_evaluated.iterrows():
         tx_dict = row.to_dict()
-        risk_score = row.get("hybrid_risk_score", 0.0)
+        
+        # Extract evaluated hybrid risk score, safely defaulting NaN values to zero float
+        raw_score = row.get("final_risk_score", row.get("hybrid_risk_score", 0.0))
+        risk_score = 0.0 if pd.isna(raw_score) else float(raw_score)
+        
         merchant = row.get("merchant", "Unknown")
 
-        # Sends Telegram alert if necessary or just logs score.
+        # Evaluate classification decision against policy threshold
         if row.get("is_high_risk", False):
+            tx_dict["risk_score"] = risk_score
             send_telegram_alert(transaction=tx_dict, risk_score=risk_score)
             high_risk_list.append(tx_dict)
         else:
-            score_fmt = f"{risk_score:.2f}" if isinstance(risk_score, (int, float)) else risk_score
-            logging.info(f"Transaction at '{merchant}' processed with a low risk score of {score_fmt}")
+            logging.info(
+                "Transaction at '%s' processed with a low risk score of %.2f", 
+                merchant, risk_score
+            )
 
     return high_risk_list
