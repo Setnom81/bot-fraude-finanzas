@@ -9,6 +9,10 @@ FOREIGN_KEYWORDS = [
 
 MICRO_AMOUNT_USD = 5.0
 
+# A charge is part of a burst when at least this many earlier charges
+# happened within the burst window (see data_preprocessing.BURST_WINDOW).
+BURST_PRIOR_CHARGES = 2
+
 
 class FraudEvaluator:
     """Hybrid risk engine: ML anomaly score combined with explicit rules.
@@ -45,11 +49,14 @@ class FraudEvaluator:
             for i in index[mask.to_numpy()]:
                 reasons.at[i].append(label)
 
-        is_new = flag("is_new_merchant")
+        first_time = flag("is_new_merchant")
+        # New also covers a merchant first seen in the last 24 hours.
+        is_new = first_time | flag("is_recent_merchant")
         zscore = number("amount_zscore")
 
-        # Rule 1: first purchase at this merchant (+20)
-        apply(is_new, 20.0, "new merchant")
+        # Rule 1: first purchase at this merchant, or first seen within 24h (+20)
+        apply(first_time, 20.0, "new merchant")
+        apply(is_new & ~first_time, 20.0, "merchant first seen in the last 24h")
 
         # Rule 2: between 00:00 and 05:59 local time (+10)
         apply(flag("is_night_transaction"), 10.0, "night-time")
@@ -75,6 +82,13 @@ class FraudEvaluator:
 
         # Rule 6: new merchant and a large amount together (+50)
         apply(is_new & (zscore > 2.5), 50.0, "large amount at new merchant")
+
+        # Rule 7: third or later charge within 10 minutes (+40)
+        is_burst = number("recent_tx_count") >= BURST_PRIOR_CHARGES
+        apply(is_burst, 40.0, "3+ charges within 10 minutes")
+
+        # Rule 8: a burst at a new merchant (+50)
+        apply(is_burst & is_new, 50.0, "rapid charges at a new merchant")
 
         df_eval["rule_risk_score"] = np.clip(rule_scores, 0.0, 100.0)
         df_eval["reasons"] = reasons

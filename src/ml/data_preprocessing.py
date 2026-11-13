@@ -15,6 +15,13 @@ _SUBJECT_DATETIME = re.compile(r"(\d{2})-(\d{2})-(\d{4})\s*-\s*(\d{2}):(\d{2})")
 
 HOME_COUNTRY = "costa rica"
 
+# Charges this close together count as one burst.
+BURST_WINDOW = pd.Timedelta(minutes=10)
+
+# A merchant keeps counting as "new" for this long after its first charge,
+# so the 2nd, 3rd... charge of a fraud run is not treated as a known shop.
+NEW_MERCHANT_WINDOW = pd.Timedelta(hours=24)
+
 
 def split_merchant(raw) -> tuple[str, str]:
     """Splits the stored merchant text into (normalized name, location)."""
@@ -116,6 +123,24 @@ class DataPreprocessor:
         # outside what the model saw in training.
         out["merchant_tx_count_log"] = np.log1p(out["merchant_tx_count_so_far"])
 
+        # Velocity: earlier charges within the burst window (any merchant),
+        # and whether this merchant was first seen very recently.
+        times = out["_order"].to_numpy(dtype="datetime64[ns]")
+        has_time = ~np.isnat(times)
+        positions = np.arange(len(out))
+        window_start = np.searchsorted(
+            times[has_time], times[has_time] - BURST_WINDOW.to_timedelta64(), side="left"
+        )
+        recent = np.zeros(len(out), dtype=int)
+        recent[has_time] = positions[has_time] - window_start
+        out["recent_tx_count"] = recent
+
+        first_seen = out.groupby("merchant_name")["_order"].transform("min")
+        merchant_age = out["_order"] - first_seen
+        out["is_recent_merchant"] = (
+            (out["is_new_merchant"] == 1) | (merchant_age < NEW_MERCHANT_WINDOW)
+        ).astype(int)
+
         # -----------------------------------------------------------------
         # 3. Amount on a single scale (CRC)
         # -----------------------------------------------------------------
@@ -175,6 +200,7 @@ class DataPreprocessor:
             "is_foreign",
             "is_new_merchant",
             "merchant_tx_count_log",
+            "recent_tx_count",
             "amount_zscore",
             "ratio_to_merchant_avg",
         ]

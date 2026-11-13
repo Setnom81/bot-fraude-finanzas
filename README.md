@@ -219,7 +219,8 @@ login is missing or expired:
 
 **Scoring**: the final score is half ML (Isolation Forest, measured against the
 training data) and half rules (`src/ml/evaluator.py`); 50 or more sends an alert.
-USD is converted with `USD_TO_CRC_RATE`, hours are in `LOCAL_TZ`. The sensitivity of
+Three or more charges within 10 minutes count as a burst, and a merchant stays
+"new" for 24 hours after its first charge. USD is converted with `USD_TO_CRC_RATE`, hours are in `LOCAL_TZ`. The sensitivity of
 the ML half is `RISK_FLOOR_PERCENTILE` in `src/ml/model.py`.
 
 **Retrain** after the history has grown (for example monthly):

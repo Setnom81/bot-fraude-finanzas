@@ -106,6 +106,41 @@ class PreprocessingTests(unittest.TestCase):
         self.assertEqual(out.loc["id-1", "is_night_transaction"], 1)
 
 
+class VelocityTests(unittest.TestCase):
+    def burst(self, merchant, n=4, gap_minutes=2):
+        start = datetime(2026, 9, 1, 4, 0)
+        rows = make_history(60) + [
+            make_tx(100 + i, merchant=merchant, amount=5000.0, when=start + timedelta(minutes=gap_minutes * i))
+            for i in range(n)
+        ]
+        pre = DataPreprocessor()
+        features = pre.fit_transform(pd.DataFrame(rows))
+        features["risk_score"] = 0.0  # rules only
+        return FraudEvaluator().calculate_hybrid_risk(features).set_index("message_id")
+
+    def test_burst_at_new_merchant_alerts_from_the_third_charge(self):
+        out = self.burst("GAMECREDITS Ciudad y país: Limassol, Chipre")
+        self.assertEqual(out.loc[["id-100", "id-101", "id-102", "id-103"], "recent_tx_count"].tolist(), [0, 1, 2, 3])
+        self.assertEqual(out.loc["id-101", "is_new_merchant"], 0)
+        self.assertEqual(out.loc["id-101", "is_recent_merchant"], 1)
+        self.assertFalse(out.loc["id-100", "is_high_risk"])
+        self.assertFalse(out.loc["id-101", "is_high_risk"])
+        self.assertTrue(out.loc["id-102", "is_high_risk"])
+        self.assertTrue(out.loc["id-103", "is_high_risk"])
+        self.assertIn("rapid charges at a new merchant", out.loc["id-102", "reasons"])
+
+    def test_burst_at_a_long_known_shop_scores_lower(self):
+        out = self.burst("SHOP 1 Ciudad y país: SAN JOSE, Costa Rica")
+        self.assertEqual(out.loc["id-102", "is_recent_merchant"], 0)
+        self.assertEqual(out.loc["id-102", "rule_risk_score"], 40.0)
+        self.assertFalse(out.loc["id-102", "is_high_risk"])
+
+    def test_spaced_out_charges_are_not_a_burst(self):
+        out = self.burst("GAMECREDITS Ciudad y país: Limassol, Chipre", gap_minutes=15)
+        self.assertEqual(out.loc["id-103", "recent_tx_count"], 0)
+        self.assertFalse(out.loc["id-103", "is_high_risk"])
+
+
 class ModelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
