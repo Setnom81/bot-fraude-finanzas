@@ -46,6 +46,7 @@ class BacParser:
         # Extracts the raw amount first so it can be reused by
         # the amount value and currency extraction methods.
         amount_raw = self.extract_amount_raw(body)
+        subject = gmail_client.get_header(headers, "Subject")
 
         return Transaction(
             message_id=message_id,
@@ -62,7 +63,12 @@ class BacParser:
 
             card_last4=self.extract_card_last4(body),
 
-            transaction_date=self.extract_transaction_date(body),
+            # BAC puts the purchase time (bank-local) in the subject;
+            # fall back to a date found in the body.
+            transaction_date=(
+                self.extract_subject_datetime(subject)
+                or self.extract_transaction_date(body)
+            ),
 
             authorization=self.extract_authorization(body),
 
@@ -70,7 +76,7 @@ class BacParser:
 
             email_to=gmail_client.get_header(headers, "To"),
 
-            email_subject=gmail_client.get_header(headers, "Subject"),
+            email_subject=subject,
 
             email_date=gmail_client.get_header(headers, "Date"),
 
@@ -265,6 +271,34 @@ class BacParser:
     # ==========================================================
     # TRANSACTION DATE
     # ==========================================================
+
+    @staticmethod
+    def extract_subject_datetime(subject):
+        """
+        Reads the purchase time from a subject such as
+        "Notificación de transacción SHOP 24-02-2026 - 22:20".
+
+        Returns:
+            str | None: ISO timestamp "2026-02-24 22:20:00" (bank-local time).
+        """
+
+        match = re.search(
+            r"(\d{2})-(\d{2})-(\d{4})\s*-\s*(\d{2}):(\d{2})",
+            subject or ""
+        )
+
+        if not match:
+            return None
+
+        day, month, year, hour, minute = match.groups()
+
+        try:
+            return datetime(
+                int(year), int(month), int(day), int(hour), int(minute)
+            ).strftime("%Y-%m-%d %H:%M:%S")
+
+        except ValueError:
+            return None
 
     def extract_transaction_date(self, body):
         """

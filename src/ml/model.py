@@ -1,90 +1,114 @@
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
-import joblib
-from pathlib import Path
+
+
+# Anomaly percentile (vs. training data) at which the ML risk starts rising
+# from 0. With 0.8, the most unusual 20% of transactions get a non-zero ML
+# risk, the top 10% get 50 or more, and the top 3% get 85 or more.
+RISK_FLOOR_PERCENTILE = 0.8
 
 
 class FraudDetector:
-    """
-    Unsupervised Anomaly Detection wrapper using Isolation Forest.
-    Calculates raw anomaly predictions and normalizes output into a 0-100 Risk Score.
+    """Isolation Forest wrapper that turns anomaly scores into a 0-100 risk.
+
+    The risk of a transaction is measured against the scores seen in training,
+    so it does not depend on which other transactions are scored with it.
     """
 
     def __init__(self, contamination: float = 0.03, random_state: int = 42):
-        """
-        Args:
-            contamination (float): Expected proportion of outliers/anomalies in dataset (e.g. 0.03 = 3%).
-            random_state (int): Seed for reproducibility.
-        """
         self.contamination = contamination
         self.random_state = random_state
         self.model = IsolationForest(
             contamination=self.contamination,
             random_state=self.random_state,
             n_estimators=100,
-            n_jobs=-1
+            n_jobs=-1,
         )
+        self.train_scores: np.ndarray | None = None
+        self.feature_columns: list[str] | None = None
+        self.trained_at: str | None = None
         self.is_fitted = False
 
     def train(self, X: pd.DataFrame) -> None:
-        """
-        Fits the Isolation Forest model on numerical feature matrix.
-        """
+        """Fits the model and keeps the training score distribution."""
         if X.empty:
             raise ValueError("Training matrix X is empty.")
 
         self.model.fit(X)
+        self.train_scores = np.sort(self.model.score_samples(X))
+        self.feature_columns = list(X.columns)
+        self.trained_at = datetime.now(timezone.utc).isoformat()
         self.is_fitted = True
 
     def predict(self, X: pd.DataFrame) -> pd.DataFrame:
-        """
-        Generates predictions and risk scores for input features.
+        """Returns 'is_anomaly' (-1 outlier, 1 normal) and 'risk_score' (0-100).
 
-        Returns:
-            pd.DataFrame: Contains 'is_anomaly' (-1 for outlier, 1 for normal)
-                          and 'risk_score' (float bounded between 0 and 100).
+        risk_score is 0 up to the RISK_FLOOR_PERCENTILE of training anomaly
+        scores and reaches 100 for a transaction more unusual than
+        everything seen in training.
         """
         if not self.is_fitted:
-            raise RuntimeError("Model must be trained via fit() before calling predict().")
+            raise RuntimeError("Model must be trained or loaded before predict().")
 
         if X.empty:
             return pd.DataFrame(columns=["is_anomaly", "risk_score"])
 
-        # 1. Raw Isolation Forest predictions: -1 = Anomaly, 1 = Normal
         raw_preds = self.model.predict(X)
 
-        # 2. Decision function scores: Lower/negative values indicate higher anomaly degree
-        scores = self.model.decision_function(X)
-
-        # 3. Transform decision score into normalized Risk Score (0 to 100)
-        # Offset decision scores relative to zero baseline
-        min_score, max_score = scores.min(), scores.max()
-        
-        if max_score == min_score:
-            risk_scores = np.full_like(scores, 50.0)
+        if self.train_scores is None or len(self.train_scores) == 0:
+            # Model file saved by an older version: no reference distribution.
+            logging.warning(
+                "Model has no training score reference; retrain with "
+                "'python -m src.ml.train' for graded risk scores."
+            )
+            risk_scores = np.where(raw_preds == -1, 100.0, 0.0)
         else:
-            # Invert scale so lower decision scores map to higher risk values
-            risk_scores = 100 * (1.0 - (scores - min_score) / (max_score - min_score))
+            # Lower score_samples = more anomalous.
+            scores = self.model.score_samples(X)
+            more_anomalous = np.searchsorted(self.train_scores, scores, side="left")
+            percentile = 1.0 - more_anomalous / len(self.train_scores)
+            risk_scores = 100.0 * np.clip(
+                (percentile - RISK_FLOOR_PERCENTILE) / (1.0 - RISK_FLOOR_PERCENTILE),
+                0.0,
+                1.0,
+            )
 
-        results = pd.DataFrame({
-            "is_anomaly": raw_preds,
-            "risk_score": np.round(risk_scores, 2)
-        }, index=X.index)
-
-        return results
+        return pd.DataFrame(
+            {"is_anomaly": raw_preds, "risk_score": np.round(risk_scores, 2)},
+            index=X.index,
+        )
 
     def save_model(self, filepath: str | Path) -> None:
-        """
-        Serializes trained model artifact to disk.
-        """
+        """Writes the model and its score reference to disk."""
         if not self.is_fitted:
             raise RuntimeError("Cannot save an untrained model instance.")
-        joblib.dump(self.model, filepath)
+        joblib.dump(
+            {
+                "model": self.model,
+                "train_scores": self.train_scores,
+                "feature_columns": self.feature_columns,
+                "trained_at": self.trained_at,
+            },
+            filepath,
+        )
 
     def load_model(self, filepath: str | Path) -> None:
-        """
-        Deserializes trained model artifact from disk.
-        """
-        self.model = joblib.load(filepath)
+        """Loads a model file (current format, or a bare model from older versions)."""
+        artifact = joblib.load(filepath)
+        if isinstance(artifact, dict):
+            self.model = artifact["model"]
+            self.train_scores = artifact.get("train_scores")
+            self.feature_columns = artifact.get("feature_columns")
+            self.trained_at = artifact.get("trained_at")
+        else:
+            self.model = artifact
+            self.train_scores = None
+            self.feature_columns = None
+            self.trained_at = None
         self.is_fitted = True

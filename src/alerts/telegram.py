@@ -1,69 +1,89 @@
+import html
 import logging
-from typing import Any, Dict, Optional
+import time
+from typing import Any, Dict, List
+
 import requests
 
 from src.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 
-def send_telegram_alert(
-    transaction: Dict[str, Any], risk_score: Optional[float] = None
-) -> None:
-    """Dispatches an HTML-formatted notification payload to the specified Telegram Chat ID
-    via the Telegram Bot API when a high-risk transaction is flagged.
+def _esc(value: Any) -> str:
+    """Escapes text for Telegram's HTML parse mode."""
+    return html.escape(str(value), quote=False)
 
-    Args:
-        transaction (Dict[str, Any]): Dictionary containing extracted transaction entity payload
-            (expected keys: 'amount', 'currency', 'merchant', 'transaction_date').
-        risk_score (Optional[float]): Evaluated hybrid risk confidence score or percentage value.
+
+def send_telegram_message(text: str, retries: int = 3) -> bool:
+    """Sends an HTML-formatted message to the configured chat.
+
+    Returns:
+        bool: True only if Telegram accepted the message.
     """
-    # 1. Environment and credential validation check
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         logging.warning(
-            "Telegram notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID "
-            "is unconfigured in environment."
+            "Telegram message not sent: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not configured."
         )
-        return
+        return False
 
-    # 2. Extract transaction entity attributes with safe default fallbacks
-    amount: float = float(transaction.get("amount", transaction.get("monto", 0.0)))
-    currency: str = str(transaction.get("currency", transaction.get("moneda", "CRC")))
-    merchant: str = str(transaction.get("merchant", transaction.get("comercio", "Unknown")))
-    date_str: str = str(transaction.get("transaction_date", transaction.get("date", "N/A")))
-
-    # 3. Construct HTML-formatted message payload for Telegram Bot API
-    message = (
-        f"🚨 <b>HIGH RISK TRANSACTION DETECTED</b> 🚨\n\n"
-        f"<b>Amount:</b> {currency} {amount:,.2f}\n"
-        f"<b>Merchant:</b> {merchant}\n"
-        f"<b>Date:</b> {date_str}\n"
-    )
-
-    # 4. Score normalization step to cap values at 100.00% and avoid double formatting
-    if risk_score is not None:
-        clean_score = min(float(risk_score), 100.0)
-        message += f"<b>Risk Score:</b> {clean_score:.2f}%\n"
-
-    message += "\n<i>Please verify this transaction if unrecognised.</i>"
-
-    # 5. Build HTTP POST payload parameters
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
+        "text": text,
         "parse_mode": "HTML",
-        "disable_web_page_preview": True,  # Suppresses automatically generated domain link cards
+        "disable_web_page_preview": True,
     }
 
-    # 6. Execute network dispatch to Telegram Bot API endpoint
-    try:
-        response = requests.post(url, json=payload, timeout=10)
-        if response.status_code == 200:
-            logging.info("Telegram notification payload successfully dispatched.")
-        else:
+    for attempt in range(1, retries + 1):
+        try:
+            response = requests.post(url, json=payload, timeout=10)
+            if response.status_code == 200:
+                logging.info("Telegram message delivered.")
+                return True
             logging.error(
-                f"Failed to dispatch Telegram alert. HTTP Status: {response.status_code} - Response: {response.text}"
+                "Telegram rejected the message (attempt %d/%d). HTTP %s: %s",
+                attempt, retries, response.status_code, response.text,
             )
-    except Exception as e:
-        logging.error(
-            f"Network Exception encountered while calling Telegram API endpoint: {e}"
-        )
+            # 4xx other than rate limiting will not succeed on retry.
+            if 400 <= response.status_code < 500 and response.status_code != 429:
+                return False
+        except requests.RequestException as e:
+            # Do not log the exception text: it contains the bot token in the URL.
+            logging.error(
+                "Network error calling Telegram (attempt %d/%d): %s",
+                attempt, retries, type(e).__name__,
+            )
+        if attempt < retries:
+            time.sleep(2 * attempt)
+
+    return False
+
+
+def format_alert(result: Dict[str, Any]) -> str:
+    """Builds the alert text for one scored transaction (see ml.inference)."""
+    amount = float(result.get("amount") or 0.0)
+    currency = result.get("currency") or ""
+    local_time = result.get("local_time")
+    when = local_time.strftime("%d-%m-%Y %H:%M") if local_time else "N/A"
+    score = min(float(result.get("risk_score") or 0.0), 100.0)
+
+    lines: List[str] = [
+        "🚨 <b>HIGH RISK TRANSACTION DETECTED</b> 🚨",
+        "",
+        f"<b>Amount:</b> {_esc(currency)} {amount:,.2f}",
+        f"<b>Merchant:</b> {_esc(result.get('merchant') or 'Unknown')}",
+    ]
+    if result.get("location"):
+        lines.append(f"<b>Location:</b> {_esc(result['location'])}")
+    if result.get("card_last4"):
+        lines.append(f"<b>Card:</b> ****{_esc(result['card_last4'])}")
+    lines.append(f"<b>Date:</b> {_esc(when)}")
+    lines.append(f"<b>Risk Score:</b> {score:.2f}%")
+    if result.get("reasons"):
+        lines.append(f"<b>Why:</b> {_esc(', '.join(result['reasons']))}")
+    lines += ["", "<i>Please verify this transaction if unrecognised.</i>"]
+    return "\n".join(lines)
+
+
+def send_telegram_alert(result: Dict[str, Any]) -> bool:
+    """Sends the high-risk alert for one scored transaction."""
+    return send_telegram_message(format_alert(result))
