@@ -190,3 +190,47 @@ Cuando el evaluador identifica una transacción que supera el umbral de riesgo (
 * **Comercio:** TIENDA DESCONOCIDA ONLINE  
 * **Fecha:** 2026-08-12 22:00:00 UTC  
 * **Score de Riesgo:** 92.50%
+
+## Running and operating the bot
+
+**Configuration** lives in `src/.env` (see `src/.env.example`); keep it private (`chmod 600`).
+MySQL and Adminer only listen on this machine. To open Adminer from another PC:
+`ssh -L 8080:127.0.0.1:8080 <user>@<host>` and browse to `http://localhost:8080`.
+
+**Outlook login** is done by hand, once, and again whenever the bot reports that the
+login is missing or expired:
+
+```bash
+.venv/bin/python -m src.outlook_login
+```
+
+**The service** (`bot-fraude.service` -> `startup.sh`) starts MySQL and then the listener:
+
+- Every cycle reads the inbox from where the last successful cycle ended, so emails
+  that arrived while the PC was off or the bot was failing are still processed.
+- A transaction is stored as `pending` and is only marked done after it was scored
+  and, if high risk, its Telegram alert was delivered. Failed alerts are retried.
+- High-risk transactions older than `ALERT_MAX_AGE_HOURS` (72) are reported in one
+  "found late" message instead of one alert each.
+- Only emails from `ALLOWED_SENDERS` are accepted.
+- Telegram also gets: a message when the bot starts, a warning after
+  `FAILURE_ALERT_AFTER` (3) failed checks in a row, a recovery notice, and a daily
+  "still running" message at `HEARTBEAT_HOUR` (08:00 local).
+
+**Scoring**: the final score is half ML (Isolation Forest, measured against the
+training data) and half rules (`src/ml/evaluator.py`); 50 or more sends an alert.
+Three or more charges within 10 minutes count as a burst, and a merchant stays
+"new" for 24 hours after its first charge. USD is converted with `USD_TO_CRC_RATE`, hours are in `LOCAL_TZ`. The sensitivity of
+the ML half is `RISK_FLOOR_PERCENTILE` in `src/ml/model.py`.
+
+**Retrain** after the history has grown (for example monthly):
+
+```bash
+.venv/bin/python -m src.ml.train && sudo systemctl restart bot-fraude
+```
+
+**Tests**:
+
+```bash
+.venv/bin/python -m unittest discover -s tests
+```

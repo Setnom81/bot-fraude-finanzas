@@ -135,7 +135,8 @@ def main():
 
     # Persist all newly discovered entries
     if new_transactions:
-        storage.add_transactions(data, new_transactions)
+        # Historical import: stored for history/training, never alerted.
+        storage.add_transactions(data, new_transactions, alert_status="imported")
         storage.save(data)
 
 

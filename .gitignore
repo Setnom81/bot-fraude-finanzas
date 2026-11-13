@@ -18,4 +18,3 @@ logs/
 service_error.log
 service_output.log
 startup.log
-startup.sh
